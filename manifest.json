@@ -1,0 +1,15 @@
+{
+  "name": "Nunes Nobre Wealth",
+  "short_name": "NobreWealth",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#0e1117",
+  "theme_color": "#f1c40f",
+  "icons": [
+    {
+      "src": "https://github.com/dev-nobres/meu-app-financeiro/blob/main/logo.png?raw=true",
+      "sizes": "512x512",
+      "type": "image/png"
+    }
+  ]
+}
