@@ -2,25 +2,28 @@
 # IMPORTAÇÃO DAS BIBLIOTECAS
 # =========================================
 
-# Streamlit -> cria a interface visual do app
+# Streamlit -> Interface visual
 import streamlit as st
 
-# Pandas -> manipulação de tabelas/dados
+# Pandas -> Manipulação de tabelas
 import pandas as pd
 
-# Date -> trabalhar com datas
+# Date -> Trabalhar com datas
 from datetime import date
 
-# Supabase -> conexão com banco online
+# Supabase -> Banco de dados online
 from supabase import create_client, Client
+
+# APIError -> Captura erros do Postgres/Supabase
+from postgrest import APIError
 
 
 # =========================================
 # CONFIGURAÇÕES DA PÁGINA
 # =========================================
 
-# Define título da aba do navegador
-# e layout da aplicação
+# Configura título da aba do navegador
+# e largura da página
 st.set_page_config(
     page_title="NN | Controle Financeiro",
     layout="wide"
@@ -28,15 +31,26 @@ st.set_page_config(
 
 
 # =========================================
-# CONEXÃO COM SUPABASE
+# LEITURA DAS SECRETS
 # =========================================
 
-# Lê dados secretos do arquivo:
+# Busca credenciais do arquivo:
 # .streamlit/secrets.toml
 SUPABASE_URL = st.secrets["SUPABASE_URL"]
 SUPABASE_KEY = st.secrets["SUPABASE_KEY"]
 
-# Cria conexão com o Supabase
+
+# =========================================
+# CLIENTE PRINCIPAL SUPABASE
+# =========================================
+
+# Esse cliente é "anônimo".
+# Ele serve para:
+# - login
+# - cadastro
+# - auth
+#
+# MAS NÃO SERVE para RLS autenticado.
 supabase: Client = create_client(
     SUPABASE_URL,
     SUPABASE_KEY
@@ -47,30 +61,80 @@ supabase: Client = create_client(
 # SESSION STATE
 # =========================================
 
-# Session State funciona como memória temporária.
-# Ele mantém informações enquanto o usuário
-# navega dentro do app.
+# Session State funciona como memória.
+# Mantém dados vivos enquanto o usuário
+# usa o app.
 
-# Verifica se existe "usuario"
+# Usuário logado
 if "usuario" not in st.session_state:
     st.session_state.usuario = None
 
-# Verifica se existe "logado"
+# Sessão JWT
+if "session" not in st.session_state:
+    st.session_state.session = None
+
+# Access Token JWT
+if "access_token" not in st.session_state:
+    st.session_state.access_token = None
+
+# Controle login
 if "logado" not in st.session_state:
     st.session_state.logado = False
 
 
 # =========================================
-# FUNÇÃO DE LOGIN E CADASTRO
+# CLIENTE AUTENTICADO JWT
+# =========================================
+
+# ESSA É A PARTE MAIS IMPORTANTE
+#
+# Essa função cria um cliente Supabase
+# usando o JWT do usuário autenticado.
+#
+# Isso faz o PostgreSQL reconhecer:
+#
+# auth.uid()
+#
+# E então o RLS funciona corretamente.
+
+def get_authenticated_client():
+
+    # Busca token salvo na sessão
+    access_token = st.session_state.get(
+        "access_token"
+    )
+
+    # Se não houver token
+    if not access_token:
+        return None
+
+    # Cria novo cliente
+    client = create_client(
+        SUPABASE_URL,
+        SUPABASE_KEY
+    )
+
+    # Injeta JWT no PostgREST
+    #
+    # Isso envia:
+    #
+    # Authorization: Bearer TOKEN
+    #
+    # para o Supabase.
+    client.postgrest.auth(access_token)
+
+    return client
+
+
+# =========================================
+# LOGIN E CADASTRO
 # =========================================
 
 def login():
 
-    # Título da tela
     st.title("🏦 NN | Controle Financeiro")
 
-    # Cria duas abas:
-    # Entrar | Criar Conta
+    # Cria abas
     aba1, aba2 = st.tabs([
         "Entrar",
         "Criar Conta"
@@ -83,7 +147,7 @@ def login():
 
     with aba1:
 
-        # Campo de email
+        # Campo email
         email = st.text_input("E-mail")
 
         # Campo senha
@@ -99,26 +163,39 @@ def login():
 
                 # Faz login no Supabase
                 resposta = supabase.auth.sign_in_with_password({
+
                     "email": email,
                     "password": senha
+
                 })
 
-                # Guarda usuário na sessão
+                # =================================
+                # SALVANDO USUÁRIO
+                # =================================
+
+                # Dados do usuário
                 st.session_state.usuario = resposta.user
+
+                # Sessão completa
+                st.session_state.session = resposta.session
+
+                # JWT ACCESS TOKEN
+                #
+                # ESSENCIAL para RLS
+                st.session_state.access_token = (
+                    resposta.session.access_token
+                )
 
                 # Marca como logado
                 st.session_state.logado = True
 
-                # Mensagem sucesso
                 st.success("Login realizado!")
 
-                # Atualiza tela
                 st.rerun()
 
             except Exception as e:
 
-                # Mostra erro caso login falhe
-                st.error(f"Erro no login: {e}")
+                st.error(f"Erro login: {e}")
 
 
     # =====================================
@@ -127,82 +204,52 @@ def login():
 
     with aba2:
 
-        # Novo email
         novo_email = st.text_input(
             "Novo e-mail",
             key="novo_email"
         )
 
-        # Nova senha
         nova_senha = st.text_input(
             "Nova senha",
             type="password",
             key="nova_senha"
         )
 
-        # Botão criar conta
         if st.button("Criar Conta"):
 
             try:
 
                 # Cria usuário no Supabase
                 supabase.auth.sign_up({
+
                     "email": novo_email,
                     "password": nova_senha
+
                 })
 
                 st.success(
-                    "Conta criada! Verifique seu e-mail."
+                    "Conta criada! Verifique o e-mail."
                 )
 
             except Exception as e:
 
-                st.error(f"Erro: {e}")
+                st.error(f"Erro cadastro: {e}")
 
 
 # =========================================
-# FUNÇÃO CARREGAR TRANSAÇÕES
+# CARREGAR CATEGORIAS
 # =========================================
 
-def carregar_transacoes(user_id):
-
-    try:
-
-        # Busca transações do usuário
-        resposta = supabase.table("transacoes") \
-            .select("*") \
-            .eq("user_id", user_id) \
-            .execute()
-
-        # Dados retornados
-        dados = resposta.data
-
-        # Se não houver dados
-        if not dados:
-            return pd.DataFrame()
-
-        # Converte para DataFrame
-        df = pd.DataFrame(dados)
-
-        return df
-
-    except Exception as e:
-
-        st.error(f"Erro ao carregar dados: {e}")
-
-        return pd.DataFrame()
-
-
-# =========================================
-# FUNÇÃO CARREGAR CATEGORIAS
-# =========================================
-
-def carregar_categorias(tabela, user_id):
+def carregar_categorias(
+    client,
+    tabela,
+    user_id
+):
 
     try:
 
         # Busca categorias do usuário
-        resposta = supabase.table(tabela) \
+        resposta = client.table(tabela) \
             .select("*") \
             .eq("user_id", user_id) \
             .execute()
@@ -217,16 +264,70 @@ def carregar_categorias(tabela, user_id):
 
 
 # =========================================
+# CARREGAR TRANSAÇÕES
+# =========================================
+
+def carregar_transacoes(
+    client,
+    user_id
+):
+
+    try:
+
+        resposta = client.table("transacoes") \
+            .select("*") \
+            .eq("user_id", user_id) \
+            .execute()
+
+        dados = resposta.data
+
+        # Se vazio
+        if not dados:
+            return pd.DataFrame()
+
+        # Converte em tabela
+        df = pd.DataFrame(dados)
+
+        return df
+
+    except Exception as e:
+
+        st.error(f"Erro transações: {e}")
+
+        return pd.DataFrame()
+
+
+# =========================================
 # DASHBOARD PRINCIPAL
 # =========================================
 
 def dashboard():
 
-    # Usuário atual
+    # =====================================
+    # DADOS USUÁRIO
+    # =====================================
+
     usuario = st.session_state.usuario
 
-    # ID do usuário
     user_id = usuario.id
+
+
+    # =====================================
+    # CLIENTE JWT AUTENTICADO
+    # =====================================
+
+    # AQUI está o segredo do RLS.
+    #
+    # Agora TODAS queries terão JWT.
+    supabase_auth = get_authenticated_client()
+
+
+    # Segurança extra
+    if not supabase_auth:
+
+        st.error("Sessão inválida.")
+
+        st.stop()
 
 
     # =====================================
@@ -235,14 +336,23 @@ def dashboard():
 
     with st.sidebar:
 
-        # Exibe email
         st.write(f"👤 {usuario.email}")
 
-        # Botão sair
+        # DEBUG JWT
+        #
+        # Pode remover depois
+        with st.expander("JWT Debug"):
+
+            st.write(
+                st.session_state.access_token
+            )
+
+        # Logout
         if st.button("🚪 Sair"):
 
-            # Limpa sessão
             st.session_state.usuario = None
+            st.session_state.session = None
+            st.session_state.access_token = None
             st.session_state.logado = False
 
             st.rerun()
@@ -256,13 +366,11 @@ def dashboard():
 
 
     # =====================================
-    # GERENCIAMENTO DE CATEGORIAS
+    # GERENCIAR CATEGORIAS
     # =====================================
 
-    # Expander -> bloco expansível
     with st.expander("⚙️ Gerenciar Categorias"):
 
-        # Divide tela em 2 colunas
         col1, col2 = st.columns(2)
 
 
@@ -274,17 +382,18 @@ def dashboard():
 
             st.subheader("🟢 Receitas")
 
-            # Carrega categorias receita
-            categorias = carregar_categorias(
+            categorias_receita = carregar_categorias(
+                supabase_auth,
                 "categorias_receita",
                 user_id
             )
 
-            # Mostra categorias
-            for cat in categorias:
+            # Lista categorias
+            for cat in categorias_receita:
+
                 st.write(f"• {cat['nome']}")
 
-            # Campo nova categoria
+            # Nova categoria
             nova_categoria = st.text_input(
                 "Nova categoria receita"
             )
@@ -292,28 +401,34 @@ def dashboard():
             # Botão adicionar
             if st.button("Adicionar Receita"):
 
-                # Validação
-                if nova_categoria != "":
+                try:
 
-                    try:
+                    # INSERT COM JWT
+                    #
+                    # Agora o auth.uid()
+                    # funciona corretamente.
+                    supabase_auth.table(
+                        "categorias_receita"
+                    ).insert({
 
-                        # Insere no banco
-                        supabase.table(
-                            "categorias_receita"
-                        ).insert({
+                        "nome": nova_categoria,
+                        "user_id": user_id
 
-                            "nome": nova_categoria,
-                            "user_id": user_id
+                    }).execute()
 
-                        }).execute()
+                    st.success(
+                        "Categoria criada!"
+                    )
 
-                        st.success("Categoria criada!")
+                    st.rerun()
 
-                        st.rerun()
+                except APIError as e:
 
-                    except Exception as e:
+                    st.error(f"Erro API: {e}")
 
-                        st.error(f"Erro: {e}")
+                except Exception as e:
+
+                    st.error(f"Erro geral: {e}")
 
 
         # =================================
@@ -324,40 +439,46 @@ def dashboard():
 
             st.subheader("🔴 Despesas")
 
-            categorias = carregar_categorias(
+            categorias_despesa = carregar_categorias(
+                supabase_auth,
                 "categorias_despesa",
                 user_id
             )
 
-            for cat in categorias:
+            for cat in categorias_despesa:
+
                 st.write(f"• {cat['nome']}")
 
-            nova_categoria_desp = st.text_input(
+            nova_despesa = st.text_input(
                 "Nova categoria despesa"
             )
 
             if st.button("Adicionar Despesa"):
 
-                if nova_categoria_desp != "":
+                try:
 
-                    try:
+                    supabase_auth.table(
+                        "categorias_despesa"
+                    ).insert({
 
-                        supabase.table(
-                            "categorias_despesa"
-                        ).insert({
+                        "nome": nova_despesa,
+                        "user_id": user_id
 
-                            "nome": nova_categoria_desp,
-                            "user_id": user_id
+                    }).execute()
 
-                        }).execute()
+                    st.success(
+                        "Categoria criada!"
+                    )
 
-                        st.success("Categoria criada!")
+                    st.rerun()
 
-                        st.rerun()
+                except APIError as e:
 
-                    except Exception as e:
+                    st.error(f"Erro API: {e}")
 
-                        st.error(f"Erro: {e}")
+                except Exception as e:
+
+                    st.error(f"Erro geral: {e}")
 
 
     # =====================================
@@ -369,14 +490,14 @@ def dashboard():
     st.subheader("➕ Novo Lançamento")
 
 
-    # Tipo da transação
+    # Tipo transação
     tipo = st.selectbox(
         "Tipo",
         ["Receita", "Despesa"]
     )
 
 
-    # Define qual tabela usar
+    # Escolhe tabela categorias
     tabela = (
         "categorias_receita"
         if tipo == "Receita"
@@ -384,14 +505,15 @@ def dashboard():
     )
 
 
-    # Busca categorias
+    # Carrega categorias
     categorias = carregar_categorias(
+        supabase_auth,
         tabela,
         user_id
     )
 
 
-    # Lista somente nomes
+    # Extrai nomes
     opcoes = [c["nome"] for c in categorias]
 
 
@@ -405,8 +527,7 @@ def dashboard():
 
     valor = st.number_input(
         "Valor",
-        min_value=0.0,
-        step=1.0
+        min_value=0.0
     )
 
     conta = st.text_input(
@@ -428,16 +549,18 @@ def dashboard():
 
         try:
 
-            # Se for despesa:
-            # transforma em valor negativo
+            # Despesa = negativo
             valor_final = valor
 
             if tipo == "Despesa":
+
                 valor_final = -valor
 
 
-            # Insere no banco
-            supabase.table("transacoes").insert({
+            # INSERT COM JWT
+            supabase_auth.table(
+                "transacoes"
+            ).insert({
 
                 "data": str(data),
                 "categoria": categoria,
@@ -449,13 +572,19 @@ def dashboard():
 
             }).execute()
 
-            st.success("Transação salva!")
+            st.success(
+                "Transação salva!"
+            )
 
             st.rerun()
 
+        except APIError as e:
+
+            st.error(f"Erro API: {e}")
+
         except Exception as e:
 
-            st.error(f"Erro: {e}")
+            st.error(f"Erro geral: {e}")
 
 
     # =====================================
@@ -467,8 +596,11 @@ def dashboard():
     st.subheader("📋 Transações")
 
 
-    # Carrega dados
-    df = carregar_transacoes(user_id)
+    # Carrega tabela
+    df = carregar_transacoes(
+        supabase_auth,
+        user_id
+    )
 
 
     # Se houver dados
@@ -480,10 +612,10 @@ def dashboard():
             use_container_width=True
         )
 
-        # Soma todos valores
+        # Soma valores
         total = df["valor"].sum()
 
-        # Exibe saldo
+        # Métrica saldo
         st.metric(
             "Saldo Atual",
             f"R$ {total:,.2f}"
@@ -491,21 +623,21 @@ def dashboard():
 
     else:
 
-        st.info("Nenhuma transação encontrada.")
+        st.info(
+            "Nenhuma transação encontrada."
+        )
 
 
 # =========================================
-# CONTROLE PRINCIPAL DO APP
+# CONTROLE PRINCIPAL APP
 # =========================================
 
-# Se usuário NÃO estiver logado
+# Se NÃO estiver logado
 if not st.session_state.logado:
 
-    # Mostra tela login
     login()
 
 # Se estiver logado
 else:
 
-    # Mostra dashboard
     dashboard()
