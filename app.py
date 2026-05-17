@@ -1,6 +1,6 @@
-# =========================================
+# =========================================================
 # IMPORTAÇÃO DAS BIBLIOTECAS
-# =========================================
+# =========================================================
 
 # Streamlit -> Interface visual
 import streamlit as st
@@ -11,157 +11,176 @@ import pandas as pd
 # Date -> Trabalhar com datas
 from datetime import date
 
-# Supabase -> Banco de dados online
+# Supabase -> Banco de dados
 from supabase import create_client, Client
 
-# APIError -> Captura erros do Postgres/Supabase
+# APIError -> Captura erros do Supabase/Postgres
 from postgrest import APIError
 
 
-# =========================================
-# CONFIGURAÇÕES DA PÁGINA
-# =========================================
+# =========================================================
+# CONFIGURAÇÃO DA PÁGINA
+# =========================================================
 
-# Configura título da aba do navegador
-# e largura da página
 st.set_page_config(
+
     page_title="NN | Controle Financeiro",
     layout="wide"
+
 )
 
 
-# =========================================
+# =========================================================
 # LEITURA DAS SECRETS
-# =========================================
+# =========================================================
 
-# Busca credenciais do arquivo:
+# Dados vindos do:
+#
 # .streamlit/secrets.toml
+#
+# ou
+#
+# Streamlit Cloud > Settings > Secrets
+
 SUPABASE_URL = st.secrets["SUPABASE_URL"]
+
 SUPABASE_KEY = st.secrets["SUPABASE_KEY"]
 
 
-# =========================================
+# =========================================================
 # CLIENTE PRINCIPAL SUPABASE
-# =========================================
+# =========================================================
 
-# Esse cliente é "anônimo".
-# Ele serve para:
-# - login
-# - cadastro
-# - auth
+# Cliente principal usado para:
 #
-# MAS NÃO SERVE para RLS autenticado.
+# - Login
+# - Cadastro
+# - Auth
+#
+# NÃO usamos ele para inserts protegidos por RLS.
+
 supabase: Client = create_client(
+
     SUPABASE_URL,
     SUPABASE_KEY
+
 )
 
 
-# =========================================
+# =========================================================
+# LISTA DE BANCOS
+# =========================================================
+
+# Aqui ficam os bancos disponíveis.
+#
+# Futuramente você pode transformar
+# isso em tabela no Supabase.
+
+BANCOS = [
+
+    "Itaú",
+    "Neon",
+    "Bradesco"
+
+]
+
+
+# =========================================================
 # SESSION STATE
-# =========================================
+# =========================================================
 
-# Session State funciona como memória.
-# Mantém dados vivos enquanto o usuário
-# usa o app.
+# Session State funciona como memória
+# temporária do Streamlit.
 
-# Usuário logado
 if "usuario" not in st.session_state:
     st.session_state.usuario = None
 
-# Sessão JWT
 if "session" not in st.session_state:
     st.session_state.session = None
 
-# Access Token JWT
 if "access_token" not in st.session_state:
     st.session_state.access_token = None
 
-# Controle login
 if "logado" not in st.session_state:
     st.session_state.logado = False
 
 
-# =========================================
-# CLIENTE AUTENTICADO JWT
-# =========================================
+# =========================================================
+# CLIENTE JWT AUTENTICADO
+# =========================================================
 
-# ESSA É A PARTE MAIS IMPORTANTE
+# Essa função é o coração do RLS.
 #
-# Essa função cria um cliente Supabase
-# usando o JWT do usuário autenticado.
-#
-# Isso faz o PostgreSQL reconhecer:
-#
-# auth.uid()
-#
-# E então o RLS funciona corretamente.
+# Ela cria um cliente autenticado
+# usando o JWT do usuário.
 
 def get_authenticated_client():
 
-    # Busca token salvo na sessão
     access_token = st.session_state.get(
         "access_token"
     )
 
     # Se não houver token
     if not access_token:
+
         return None
 
-    # Cria novo cliente
+    # Cria cliente
     client = create_client(
+
         SUPABASE_URL,
         SUPABASE_KEY
+
     )
 
-    # Injeta JWT no PostgREST
+    # Injeta JWT
     #
-    # Isso envia:
+    # Isso faz o Supabase reconhecer:
     #
-    # Authorization: Bearer TOKEN
-    #
-    # para o Supabase.
-    client.postgrest.auth(access_token)
+    # auth.uid()
+
+    client.postgrest.auth(
+        access_token
+    )
 
     return client
 
 
-# =========================================
-# LOGIN E CADASTRO
-# =========================================
+# =========================================================
+# FUNÇÃO LOGIN
+# =========================================================
 
 def login():
 
     st.title("🏦 NN | Controle Financeiro")
 
-    # Cria abas
     aba1, aba2 = st.tabs([
         "Entrar",
         "Criar Conta"
     ])
 
 
-    # =====================================
-    # ABA LOGIN
-    # =====================================
+    # =====================================================
+    # LOGIN
+    # =====================================================
 
     with aba1:
 
-        # Campo email
-        email = st.text_input("E-mail")
-
-        # Campo senha
-        senha = st.text_input(
-            "Senha",
-            type="password"
+        email = st.text_input(
+            "E-mail"
         )
 
-        # Botão login
+        senha = st.text_input(
+
+            "Senha",
+            type="password"
+
+        )
+
         if st.button("Entrar"):
 
             try:
 
-                # Faz login no Supabase
                 resposta = supabase.auth.sign_in_with_password({
 
                     "email": email,
@@ -169,57 +188,57 @@ def login():
 
                 })
 
-                # =================================
-                # SALVANDO USUÁRIO
-                # =================================
-
-                # Dados do usuário
+                # Salva usuário
                 st.session_state.usuario = resposta.user
 
-                # Sessão completa
+                # Salva sessão
                 st.session_state.session = resposta.session
 
                 # JWT ACCESS TOKEN
-                #
-                # ESSENCIAL para RLS
                 st.session_state.access_token = (
                     resposta.session.access_token
                 )
 
-                # Marca como logado
                 st.session_state.logado = True
 
-                st.success("Login realizado!")
+                st.success(
+                    "Login realizado!"
+                )
 
                 st.rerun()
 
             except Exception as e:
 
-                st.error(f"Erro login: {e}")
+                st.error(
+                    f"Erro login: {e}"
+                )
 
 
-    # =====================================
-    # ABA CADASTRO
-    # =====================================
+    # =====================================================
+    # CADASTRO
+    # =====================================================
 
     with aba2:
 
         novo_email = st.text_input(
-            "Novo e-mail",
+
+            "Novo E-mail",
             key="novo_email"
+
         )
 
         nova_senha = st.text_input(
-            "Nova senha",
+
+            "Nova Senha",
             type="password",
             key="nova_senha"
+
         )
 
         if st.button("Criar Conta"):
 
             try:
 
-                # Cria usuário no Supabase
                 supabase.auth.sign_up({
 
                     "email": novo_email,
@@ -228,17 +247,56 @@ def login():
                 })
 
                 st.success(
-                    "Conta criada! Verifique o e-mail."
+                    "Conta criada!"
                 )
 
             except Exception as e:
 
-                st.error(f"Erro cadastro: {e}")
+                st.error(
+                    f"Erro cadastro: {e}"
+                )
 
 
-# =========================================
+# =========================================================
+# CARREGAR TRANSAÇÕES
+# =========================================================
+
+def carregar_transacoes(
+    client,
+    user_id
+):
+
+    try:
+
+        resposta = client.table(
+            "transacoes"
+        ).select("*").eq(
+            "user_id",
+            user_id
+        ).execute()
+
+        dados = resposta.data
+
+        if not dados:
+
+            return pd.DataFrame()
+
+        df = pd.DataFrame(dados)
+
+        return df
+
+    except Exception as e:
+
+        st.error(
+            f"Erro transações: {e}"
+        )
+
+        return pd.DataFrame()
+
+
+# =========================================================
 # CARREGAR CATEGORIAS
-# =========================================
+# =========================================================
 
 def carregar_categorias(
     client,
@@ -248,396 +306,654 @@ def carregar_categorias(
 
     try:
 
-        # Busca categorias do usuário
-        resposta = client.table(tabela) \
-            .select("*") \
-            .eq("user_id", user_id) \
-            .execute()
+        resposta = client.table(
+            tabela
+        ).select("*").eq(
+            "user_id",
+            user_id
+        ).execute()
 
         return resposta.data
 
     except Exception as e:
 
-        st.error(f"Erro categorias: {e}")
+        st.error(
+            f"Erro categorias: {e}"
+        )
 
         return []
 
 
-# =========================================
-# CARREGAR TRANSAÇÕES
-# =========================================
-
-def carregar_transacoes(
-    client,
-    user_id
-):
-
-    try:
-
-        resposta = client.table("transacoes") \
-            .select("*") \
-            .eq("user_id", user_id) \
-            .execute()
-
-        dados = resposta.data
-
-        # Se vazio
-        if not dados:
-            return pd.DataFrame()
-
-        # Converte em tabela
-        df = pd.DataFrame(dados)
-
-        return df
-
-    except Exception as e:
-
-        st.error(f"Erro transações: {e}")
-
-        return pd.DataFrame()
-
-
-# =========================================
+# =========================================================
 # DASHBOARD PRINCIPAL
-# =========================================
+# =========================================================
 
 def dashboard():
-
-    # =====================================
-    # DADOS USUÁRIO
-    # =====================================
 
     usuario = st.session_state.usuario
 
     user_id = usuario.id
 
-
-    # =====================================
-    # CLIENTE JWT AUTENTICADO
-    # =====================================
-
-    # AQUI está o segredo do RLS.
-    #
-    # Agora TODAS queries terão JWT.
+    # Cliente JWT autenticado
     supabase_auth = get_authenticated_client()
 
-
-    # Segurança extra
     if not supabase_auth:
 
-        st.error("Sessão inválida.")
+        st.error(
+            "Sessão inválida."
+        )
 
         st.stop()
 
 
-    # =====================================
-    # SIDEBAR
-    # =====================================
+    # =====================================================
+    # MENU LATERAL
+    # =====================================================
 
     with st.sidebar:
 
-        st.write(f"👤 {usuario.email}")
+        st.title("⚙️ Menu")
 
-        # DEBUG JWT
-        #
-        # Pode remover depois
-        with st.expander("JWT Debug"):
+        st.write(
+            f"👤 {usuario.email}"
+        )
 
-            st.write(
-                st.session_state.access_token
-            )
+        menu = st.radio(
+
+            "Navegação",
+
+            [
+                "Dashboard",
+                "Categorias",
+                "Configurações"
+            ]
+
+        )
 
         # Logout
         if st.button("🚪 Sair"):
 
             st.session_state.usuario = None
+
             st.session_state.session = None
+
             st.session_state.access_token = None
+
             st.session_state.logado = False
 
             st.rerun()
 
 
-    # =====================================
-    # TÍTULO
-    # =====================================
+    # =====================================================
+    # TELA DASHBOARD
+    # =====================================================
 
-    st.title("📊 Dashboard Financeiro")
+    if menu == "Dashboard":
+
+        st.title(
+            "📊 Dashboard Financeiro"
+        )
+
+        # ================================================
+        # CARREGA TRANSAÇÕES
+        # ================================================
+
+        df = carregar_transacoes(
+            supabase_auth,
+            user_id
+        )
 
 
-    # =====================================
-    # GERENCIAR CATEGORIAS
-    # =====================================
+        # ================================================
+        # SALDOS BANCÁRIOS
+        # ================================================
 
-    with st.expander("⚙️ Gerenciar Categorias"):
+        st.subheader(
+            "💰 Saldos Bancários"
+        )
+
+        if not df.empty:
+
+            saldo_itau = df[
+                df["banco"] == "Itaú"
+            ]["valor"].sum()
+
+            saldo_neon = df[
+                df["banco"] == "Neon"
+            ]["valor"].sum()
+
+            saldo_bradesco = df[
+                df["banco"] == "Bradesco"
+            ]["valor"].sum()
+
+        else:
+
+            saldo_itau = 0
+            saldo_neon = 0
+            saldo_bradesco = 0
+
+
+        # ================================================
+        # CARDS DOS BANCOS
+        # ================================================
+
+        col1, col2, col3 = st.columns(3)
+
+        with col1:
+
+            st.metric(
+
+                "🏦 Itaú",
+                f"R$ {saldo_itau:,.2f}"
+
+            )
+
+        with col2:
+
+            st.metric(
+
+                "🏦 Neon",
+                f"R$ {saldo_neon:,.2f}"
+
+            )
+
+        with col3:
+
+            st.metric(
+
+                "🏦 Bradesco",
+                f"R$ {saldo_bradesco:,.2f}"
+
+            )
+
+
+        # ================================================
+        # SALDO TOTAL
+        # ================================================
+
+        st.divider()
+
+        saldo_total = (
+
+            saldo_itau +
+            saldo_neon +
+            saldo_bradesco
+
+        )
+
+        st.metric(
+
+            "💵 Saldo Total",
+            f"R$ {saldo_total:,.2f}"
+
+        )
+
+
+        # ================================================
+        # NOVA TRANSAÇÃO
+        # ================================================
+
+        st.divider()
+
+        st.subheader(
+            "➕ Novo Lançamento"
+        )
+
+        tipo = st.selectbox(
+
+            "Tipo Transação",
+
+            [
+                "Receita",
+                "Despesa",
+                "Transferência"
+            ]
+
+        )
+
+
+        # ================================================
+        # CAMPOS PADRÃO
+        # ================================================
+
+        data = st.date_input(
+            "Data"
+        )
+
+        valor = st.number_input(
+
+            "Valor",
+            min_value=0.0
+
+        )
+
+
+        # ================================================
+        # RECEITA E DESPESA
+        # ================================================
+
+        if tipo != "Transferência":
+
+            tabela = (
+                "categorias_receita"
+                if tipo == "Receita"
+                else "categorias_despesa"
+            )
+
+            categorias = carregar_categorias(
+
+                supabase_auth,
+                tabela,
+                user_id
+
+            )
+
+            opcoes = [
+                c["nome"]
+                for c in categorias
+            ]
+
+            categoria = st.selectbox(
+
+                "Categoria",
+
+                opcoes if opcoes else [
+                    "Sem categoria"
+                ]
+
+            )
+
+            banco = st.selectbox(
+
+                "Banco",
+
+                BANCOS
+
+            )
+
+
+        # ================================================
+        # TRANSFERÊNCIA
+        # ================================================
+
+        else:
+
+            categoria = "Transferência"
+
+            banco = st.selectbox(
+
+                "Banco Origem",
+
+                BANCOS
+
+            )
+
+            banco_destino = st.selectbox(
+
+                "Banco Destino",
+
+                BANCOS
+
+            )
+
+
+        status = st.selectbox(
+
+            "Status",
+
+            [
+                "Pago",
+                "Pendente"
+            ]
+
+        )
+
+
+        # ================================================
+        # BOTÃO SALVAR
+        # ================================================
+
+        if st.button("Salvar Transação"):
+
+            try:
+
+                # ========================================
+                # RECEITA
+                # ========================================
+
+                if tipo == "Receita":
+
+                    supabase_auth.table(
+                        "transacoes"
+                    ).insert({
+
+                        "data": str(data),
+                        "categoria": categoria,
+                        "valor": valor,
+                        "tipo": tipo,
+                        "status": status,
+                        "banco": banco,
+                        "user_id": user_id
+
+                    }).execute()
+
+
+                # ========================================
+                # DESPESA
+                # ========================================
+
+                elif tipo == "Despesa":
+
+                    supabase_auth.table(
+                        "transacoes"
+                    ).insert({
+
+                        "data": str(data),
+                        "categoria": categoria,
+                        "valor": -valor,
+                        "tipo": tipo,
+                        "status": status,
+                        "banco": banco,
+                        "user_id": user_id
+
+                    }).execute()
+
+
+                # ========================================
+                # TRANSFERÊNCIA
+                # ========================================
+
+                elif tipo == "Transferência":
+
+                    # SAÍDA
+                    supabase_auth.table(
+                        "transacoes"
+                    ).insert({
+
+                        "data": str(data),
+                        "categoria": "Transferência",
+                        "valor": -valor,
+                        "tipo": tipo,
+                        "status": status,
+                        "banco": banco,
+                        "banco_destino": banco_destino,
+                        "user_id": user_id
+
+                    }).execute()
+
+
+                    # ENTRADA
+                    supabase_auth.table(
+                        "transacoes"
+                    ).insert({
+
+                        "data": str(data),
+                        "categoria": "Transferência",
+                        "valor": valor,
+                        "tipo": tipo,
+                        "status": status,
+                        "banco": banco_destino,
+                        "banco_destino": banco,
+                        "user_id": user_id
+
+                    }).execute()
+
+
+                st.success(
+                    "Transação salva!"
+                )
+
+                st.rerun()
+
+            except Exception as e:
+
+                st.error(
+                    f"Erro salvar: {e}"
+                )
+
+
+        # ================================================
+        # LISTAGEM TRANSAÇÕES
+        # ================================================
+
+        st.divider()
+
+        st.subheader(
+            "📋 Transações"
+        )
+
+        if not df.empty:
+
+            # Remove user_id da visualização
+            df_exibir = df.drop(
+
+                columns=["user_id"],
+                errors="ignore"
+
+            )
+
+            st.dataframe(
+
+                df_exibir,
+                use_container_width=True
+
+            )
+
+
+            # ============================================
+            # EXCLUIR TRANSAÇÃO
+            # ============================================
+
+            st.divider()
+
+            st.subheader(
+                "🗑️ Excluir Transação"
+            )
+
+            ids = df["id"].tolist()
+
+            id_excluir = st.selectbox(
+
+                "Selecione ID",
+
+                ids
+
+            )
+
+            if st.button(
+                "Excluir Transação"
+            ):
+
+                supabase_auth.table(
+                    "transacoes"
+                ).delete().eq(
+
+                    "id",
+                    id_excluir
+
+                ).execute()
+
+                st.success(
+                    "Transação excluída!"
+                )
+
+                st.rerun()
+
+
+    # =====================================================
+    # MENU CATEGORIAS
+    # =====================================================
+
+    elif menu == "Categorias":
+
+        st.title(
+            "🗂️ Categorias"
+        )
 
         col1, col2 = st.columns(2)
 
 
-        # =================================
+        # =================================================
         # RECEITAS
-        # =================================
+        # =================================================
 
         with col1:
 
-            st.subheader("🟢 Receitas")
+            st.subheader(
+                "🟢 Receitas"
+            )
 
-            categorias_receita = carregar_categorias(
+            receitas = carregar_categorias(
+
                 supabase_auth,
                 "categorias_receita",
                 user_id
+
             )
 
-            # Lista categorias
-            for cat in categorias_receita:
+            for item in receitas:
 
-                st.write(f"• {cat['nome']}")
+                c1, c2 = st.columns([4, 1])
 
-            # Nova categoria
-            nova_categoria = st.text_input(
-                "Nova categoria receita"
-            )
+                with c1:
 
-            # Botão adicionar
-            if st.button("Adicionar Receita"):
-
-                try:
-
-                    # INSERT COM JWT
-                    #
-                    # Agora o auth.uid()
-                    # funciona corretamente.
-                    supabase_auth.table(
-                        "categorias_receita"
-                    ).insert({
-
-                        "nome": nova_categoria,
-                        "user_id": user_id
-
-                    }).execute()
-
-                    st.success(
-                        "Categoria criada!"
+                    st.write(
+                        item["nome"]
                     )
 
-                    st.rerun()
+                with c2:
 
-                except APIError as e:
+                    if st.button(
 
-                    st.error(f"Erro API: {e}")
+                        "❌",
+                        key=f"del_rec_{item['id']}"
 
-                except Exception as e:
+                    ):
 
-                    st.error(f"Erro geral: {e}")
+                        supabase_auth.table(
+                            "categorias_receita"
+                        ).delete().eq(
+
+                            "id",
+                            item["id"]
+
+                        ).execute()
+
+                        st.rerun()
 
 
-        # =================================
+            nova_receita = st.text_input(
+                "Nova Receita"
+            )
+
+            if st.button(
+                "Adicionar Receita"
+            ):
+
+                supabase_auth.table(
+                    "categorias_receita"
+                ).insert({
+
+                    "nome": nova_receita,
+                    "user_id": user_id
+
+                }).execute()
+
+                st.rerun()
+
+
+        # =================================================
         # DESPESAS
-        # =================================
+        # =================================================
 
         with col2:
 
-            st.subheader("🔴 Despesas")
+            st.subheader(
+                "🔴 Despesas"
+            )
 
-            categorias_despesa = carregar_categorias(
+            despesas = carregar_categorias(
+
                 supabase_auth,
                 "categorias_despesa",
                 user_id
+
             )
 
-            for cat in categorias_despesa:
+            for item in despesas:
 
-                st.write(f"• {cat['nome']}")
+                c1, c2 = st.columns([4, 1])
 
-            nova_despesa = st.text_input(
-                "Nova categoria despesa"
-            )
+                with c1:
 
-            if st.button("Adicionar Despesa"):
-
-                try:
-
-                    supabase_auth.table(
-                        "categorias_despesa"
-                    ).insert({
-
-                        "nome": nova_despesa,
-                        "user_id": user_id
-
-                    }).execute()
-
-                    st.success(
-                        "Categoria criada!"
+                    st.write(
+                        item["nome"]
                     )
 
-                    st.rerun()
+                with c2:
 
-                except APIError as e:
+                    if st.button(
 
-                    st.error(f"Erro API: {e}")
+                        "❌",
+                        key=f"del_desp_{item['id']}"
 
-                except Exception as e:
+                    ):
 
-                    st.error(f"Erro geral: {e}")
+                        supabase_auth.table(
+                            "categorias_despesa"
+                        ).delete().eq(
 
+                            "id",
+                            item["id"]
 
-    # =====================================
-    # NOVA TRANSAÇÃO
-    # =====================================
+                        ).execute()
 
-    st.divider()
-
-    st.subheader("➕ Novo Lançamento")
-
-
-    # Tipo transação
-    tipo = st.selectbox(
-        "Tipo",
-        ["Receita", "Despesa"]
-    )
+                        st.rerun()
 
 
-    # Escolhe tabela categorias
-    tabela = (
-        "categorias_receita"
-        if tipo == "Receita"
-        else "categorias_despesa"
-    )
-
-
-    # Carrega categorias
-    categorias = carregar_categorias(
-        supabase_auth,
-        tabela,
-        user_id
-    )
-
-
-    # Extrai nomes
-    opcoes = [c["nome"] for c in categorias]
-
-
-    # Campos formulário
-    data = st.date_input("Data")
-
-    categoria = st.selectbox(
-        "Categoria",
-        opcoes if opcoes else ["Sem categoria"]
-    )
-
-    valor = st.number_input(
-        "Valor",
-        min_value=0.0
-    )
-
-    conta = st.text_input(
-        "Conta",
-        value="Carteira"
-    )
-
-    status = st.selectbox(
-        "Status",
-        ["Pago", "Pendente"]
-    )
-
-
-    # =====================================
-    # SALVAR TRANSAÇÃO
-    # =====================================
-
-    if st.button("Salvar Transação"):
-
-        try:
-
-            # Despesa = negativo
-            valor_final = valor
-
-            if tipo == "Despesa":
-
-                valor_final = -valor
-
-
-            # INSERT COM JWT
-            supabase_auth.table(
-                "transacoes"
-            ).insert({
-
-                "data": str(data),
-                "categoria": categoria,
-                "valor": valor_final,
-                "conta": conta,
-                "tipo": tipo,
-                "status": status,
-                "user_id": user_id
-
-            }).execute()
-
-            st.success(
-                "Transação salva!"
+            nova_despesa = st.text_input(
+                "Nova Despesa"
             )
 
-            st.rerun()
+            if st.button(
+                "Adicionar Despesa"
+            ):
 
-        except APIError as e:
+                supabase_auth.table(
+                    "categorias_despesa"
+                ).insert({
 
-            st.error(f"Erro API: {e}")
+                    "nome": nova_despesa,
+                    "user_id": user_id
 
-        except Exception as e:
+                }).execute()
 
-            st.error(f"Erro geral: {e}")
-
-
-    # =====================================
-    # TABELA DE TRANSAÇÕES
-    # =====================================
-
-    st.divider()
-
-    st.subheader("📋 Transações")
+                st.rerun()
 
 
-    # Carrega tabela
-    df = carregar_transacoes(
-        supabase_auth,
-        user_id
-    )
+    # =====================================================
+    # MENU CONFIGURAÇÕES
+    # =====================================================
 
+    elif menu == "Configurações":
 
-    # Se houver dados
-    if not df.empty:
-
-        # Mostra tabela
-        st.dataframe(
-            df,
-            use_container_width=True
+        st.title(
+            "⚙️ Configurações"
         )
-
-        # Soma valores
-        total = df["valor"].sum()
-
-        # Métrica saldo
-        st.metric(
-            "Saldo Atual",
-            f"R$ {total:,.2f}"
-        )
-
-    else:
 
         st.info(
-            "Nenhuma transação encontrada."
+            "Área reservada para futuras configurações."
         )
 
 
-# =========================================
-# CONTROLE PRINCIPAL APP
-# =========================================
+# =========================================================
+# CONTROLE PRINCIPAL
+# =========================================================
 
-# Se NÃO estiver logado
 if not st.session_state.logado:
 
     login()
 
-# Se estiver logado
 else:
 
     dashboard()
