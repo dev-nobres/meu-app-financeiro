@@ -4,12 +4,11 @@
 
 import streamlit as st
 import pandas as pd
+import plotly.express as px
 
 from datetime import date
 
 from supabase import create_client, Client
-
-from postgrest import APIError
 
 
 # =========================================================
@@ -25,17 +24,13 @@ st.set_page_config(
 
 
 # =========================================================
-# SUPABASE SECRETS
+# CONEXÃO SUPABASE
 # =========================================================
 
 SUPABASE_URL = st.secrets["SUPABASE_URL"]
 
 SUPABASE_KEY = st.secrets["SUPABASE_KEY"]
 
-
-# =========================================================
-# CLIENTE PRINCIPAL
-# =========================================================
 
 supabase: Client = create_client(
 
@@ -79,7 +74,7 @@ if "tela" not in st.session_state:
 
 
 # =========================================================
-# CLIENTE JWT AUTENTICADO
+# CLIENTE AUTENTICADO COM JWT
 # =========================================================
 
 def get_authenticated_client():
@@ -109,13 +104,15 @@ def get_authenticated_client():
 # LOGIN
 # =========================================================
 
-def login():
+def tela_login():
 
     st.title("🏦 NN | Controle Financeiro")
 
     aba1, aba2 = st.tabs([
+
         "Entrar",
         "Criar Conta"
+
     ])
 
 
@@ -173,17 +170,13 @@ def login():
     with aba2:
 
         novo_email = st.text_input(
-
-            "Novo e-mail",
-            key="novo_email"
-
+            "Novo E-mail"
         )
 
         nova_senha = st.text_input(
 
-            "Nova senha",
-            type="password",
-            key="nova_senha"
+            "Nova Senha",
+            type="password"
 
         )
 
@@ -236,7 +229,19 @@ def carregar_transacoes(
 
             return pd.DataFrame()
 
-        return pd.DataFrame(dados)
+        df = pd.DataFrame(dados)
+
+        # Converte data
+        df["data"] = pd.to_datetime(
+            df["data"]
+        )
+
+        # Cria coluna mês/ano
+        df["mes_ano"] = df["data"].dt.strftime(
+            "%m/%Y"
+        )
+
+        return df
 
     except Exception as e:
 
@@ -295,7 +300,7 @@ def excluir_transacao(
             id_transacao
         ).execute()
 
-        st.success(
+        st.toast(
             "Transação excluída!"
         )
 
@@ -305,6 +310,38 @@ def excluir_transacao(
 
         st.error(
             f"Erro excluir: {e}"
+        )
+
+
+# =========================================================
+# EXCLUIR CATEGORIA
+# =========================================================
+
+def excluir_categoria(
+    client,
+    tabela,
+    id_categoria
+):
+
+    try:
+
+        client.table(
+            tabela
+        ).delete().eq(
+            "id",
+            id_categoria
+        ).execute()
+
+        st.toast(
+            "Categoria excluída!"
+        )
+
+        st.rerun()
+
+    except Exception as e:
+
+        st.error(
+            f"Erro excluir categoria: {e}"
         )
 
 
@@ -579,38 +616,36 @@ def popup_categorias():
 
             with c2:
 
-                if st.button(
+                st.button(
 
                     "❌",
-                    key=f"del_rec_{item['id']}"
 
-                ):
+                    key=f"del_rec_{item['id']}",
 
-                    supabase_auth.table(
-                        "categorias_receita"
-                    ).delete().eq(
+                    on_click=excluir_categoria,
 
-                        "id",
+                    args=(
+
+                        supabase_auth,
+                        "categorias_receita",
                         item["id"]
 
-                    ).execute()
+                    )
 
-                    st.rerun()
+                )
 
 
-        nova_receita = st.text_input(
-            "Nova Receita"
+        nova = st.text_input(
+            "Nova Receita:"
         )
 
-        if st.button(
-            "Adicionar Receita"
-        ):
+        if st.button("➕ Adicionar Receita"):
 
             supabase_auth.table(
                 "categorias_receita"
             ).insert({
 
-                "nome": nova_receita,
+                "nome": nova,
                 "user_id": user_id
 
             }).execute()
@@ -646,38 +681,36 @@ def popup_categorias():
 
             with c2:
 
-                if st.button(
+                st.button(
 
                     "❌",
-                    key=f"del_desp_{item['id']}"
 
-                ):
+                    key=f"del_desp_{item['id']}",
 
-                    supabase_auth.table(
-                        "categorias_despesa"
-                    ).delete().eq(
+                    on_click=excluir_categoria,
 
-                        "id",
+                    args=(
+
+                        supabase_auth,
+                        "categorias_despesa",
                         item["id"]
 
-                    ).execute()
+                    )
 
-                    st.rerun()
+                )
 
 
-        nova_despesa = st.text_input(
-            "Nova Despesa"
+        nova_d = st.text_input(
+            "Nova Despesa:"
         )
 
-        if st.button(
-            "Adicionar Despesa"
-        ):
+        if st.button("➕ Adicionar Despesa"):
 
             supabase_auth.table(
                 "categorias_despesa"
             ).insert({
 
-                "nome": nova_despesa,
+                "nome": nova_d,
                 "user_id": user_id
 
             }).execute()
@@ -766,12 +799,54 @@ def dashboard():
 
 
     # =====================================================
-    # DASHBOARD PRINCIPAL
+    # FILTRO POR MÊS
     # =====================================================
 
-    st.title(
-        "📊 Dashboard Financeiro"
+    st.divider()
+
+    meses = sorted(
+
+        df["mes_ano"].unique(),
+
+        reverse=True
+
+    ) if not df.empty else []
+
+    mes_selecionado = st.selectbox(
+
+        "📅 Filtrar por mês",
+
+        meses
+
     )
+
+    if mes_selecionado:
+
+        df = df[
+            df["mes_ano"] == mes_selecionado
+        ]
+
+
+    # =====================================================
+    # TOPO DASHBOARD
+    # =====================================================
+
+    col1, col2 = st.columns([8, 2])
+
+    with col1:
+
+        st.title(
+            "📊 Dashboard Financeiro"
+        )
+
+    with col2:
+
+        if st.button(
+            "➕ Nova Transação",
+            use_container_width=True
+        ):
+
+            popup_nova_transacao()
 
 
     # =====================================================
@@ -852,6 +927,154 @@ def dashboard():
 
 
     # =====================================================
+    # GRÁFICO DESPESAS
+    # =====================================================
+
+    st.divider()
+
+    st.subheader(
+        "📉 Despesas por Categoria"
+    )
+
+    df_despesas = df[
+        df["tipo"] == "Despesa"
+    ] if not df.empty else pd.DataFrame()
+
+    if not df_despesas.empty:
+
+        grafico_despesas = (
+
+            df_despesas
+            .groupby("categoria")["valor"]
+            .sum()
+            .reset_index()
+
+        )
+
+        grafico_despesas["valor"] = (
+            grafico_despesas["valor"].abs()
+        )
+
+        fig = px.pie(
+
+            grafico_despesas,
+
+            names="categoria",
+            values="valor",
+
+            title="Distribuição de Despesas"
+
+        )
+
+        st.plotly_chart(
+
+            fig,
+            use_container_width=True
+
+        )
+
+
+    # =====================================================
+    # RECEITAS VS DESPESAS
+    # =====================================================
+
+    st.divider()
+
+    st.subheader(
+        "📊 Receitas vs Despesas"
+    )
+
+    receitas_total = df[
+        df["tipo"] == "Receita"
+    ]["valor"].sum()
+
+    despesas_total = abs(
+
+        df[
+            df["tipo"] == "Despesa"
+        ]["valor"].sum()
+
+    )
+
+    grafico_resumo = pd.DataFrame({
+
+        "Tipo": [
+
+            "Receitas",
+            "Despesas"
+
+        ],
+
+        "Valor": [
+
+            receitas_total,
+            despesas_total
+
+        ]
+
+    })
+
+    fig2 = px.bar(
+
+        grafico_resumo,
+
+        x="Tipo",
+        y="Valor",
+
+        title="Comparativo Financeiro"
+
+    )
+
+    st.plotly_chart(
+
+        fig2,
+        use_container_width=True
+
+    )
+
+
+    # =====================================================
+    # EVOLUÇÃO FINANCEIRA
+    # =====================================================
+
+    st.divider()
+
+    st.subheader(
+        "📈 Evolução Financeira"
+    )
+
+    if not df.empty:
+
+        evolucao = (
+
+            df.groupby("data")["valor"]
+            .sum()
+            .reset_index()
+
+        )
+
+        fig3 = px.line(
+
+            evolucao,
+
+            x="data",
+            y="valor",
+
+            markers=True,
+
+            title="Saldo Diário"
+
+        )
+
+        st.plotly_chart(
+
+            fig3,
+            use_container_width=True
+
+        )
+
+
+    # =====================================================
     # ABAS TRANSAÇÕES
     # =====================================================
 
@@ -899,32 +1122,20 @@ def dashboard():
                         f"Data: {row['data']}"
                     )
 
-                    col1, col2 = st.columns(2)
+                    st.button(
 
-                    with col1:
+                        "🗑️ Excluir",
 
-                        if st.button(
+                        key=f"del_desp_{row['id']}",
 
-                            "🗑️ Excluir",
-                            key=f"del_desp_{row['id']}"
+                        on_click=excluir_transacao,
 
-                        ):
-
-                            excluir_transacao(
-
-                                supabase_auth,
-                                row["id"]
-
-                            )
-
-                    with col2:
-
-                        st.button(
-
-                            "✏️ Editar",
-                            key=f"edit_desp_{row['id']}"
-
+                        args=(
+                            supabase_auth,
+                            row["id"]
                         )
+
+                    )
 
 
     # =====================================================
@@ -956,32 +1167,20 @@ def dashboard():
                         f"Data: {row['data']}"
                     )
 
-                    col1, col2 = st.columns(2)
+                    st.button(
 
-                    with col1:
+                        "🗑️ Excluir",
 
-                        if st.button(
+                        key=f"del_rec_{row['id']}",
 
-                            "🗑️ Excluir",
-                            key=f"del_rec_{row['id']}"
+                        on_click=excluir_transacao,
 
-                        ):
-
-                            excluir_transacao(
-
-                                supabase_auth,
-                                row["id"]
-
-                            )
-
-                    with col2:
-
-                        st.button(
-
-                            "✏️ Editar",
-                            key=f"edit_rec_{row['id']}"
-
+                        args=(
+                            supabase_auth,
+                            row["id"]
                         )
+
+                    )
 
 
     # =====================================================
@@ -1013,32 +1212,20 @@ def dashboard():
                         f"Data: {row['data']}"
                     )
 
-                    col1, col2 = st.columns(2)
+                    st.button(
 
-                    with col1:
+                        "🗑️ Excluir",
 
-                        if st.button(
+                        key=f"del_transf_{row['id']}",
 
-                            "🗑️ Excluir",
-                            key=f"del_transf_{row['id']}"
+                        on_click=excluir_transacao,
 
-                        ):
-
-                            excluir_transacao(
-
-                                supabase_auth,
-                                row["id"]
-
-                            )
-
-                    with col2:
-
-                        st.button(
-
-                            "✏️ Editar",
-                            key=f"edit_transf_{row['id']}"
-
+                        args=(
+                            supabase_auth,
+                            row["id"]
                         )
+
+                    )
 
 
     # =====================================================
@@ -1055,7 +1242,7 @@ def dashboard():
 
         df_exibir = df.drop(
 
-            columns=["user_id"],
+            columns=["user_id", "mes_ano"],
             errors="ignore"
 
         )
@@ -1080,7 +1267,7 @@ def dashboard():
 
 if not st.session_state.logado:
 
-    login()
+    tela_login()
 
 else:
 
