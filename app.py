@@ -69,8 +69,8 @@ if "access_token" not in st.session_state:
 if "logado" not in st.session_state:
     st.session_state.logado = False
 
-if "tela" not in st.session_state:
-    st.session_state.tela = "dashboard"
+if "nome_painel" not in st.session_state:
+    st.session_state.nome_painel = "Meu Controle Financeiro"
 
 
 # =========================================================
@@ -114,7 +114,6 @@ def tela_login():
         "Criar Conta"
 
     ])
-
 
     # =====================================================
     # LOGIN
@@ -162,7 +161,6 @@ def tela_login():
                     f"Erro login: {e}"
                 )
 
-
     # =====================================================
     # CADASTRO
     # =====================================================
@@ -192,7 +190,7 @@ def tela_login():
                 })
 
                 st.success(
-                    "Conta criada com sucesso!"
+                    "Conta criada!"
                 )
 
             except Exception as e:
@@ -232,7 +230,7 @@ def carregar_transacoes(
         df = pd.DataFrame(dados)
 
         # =================================================
-        # GARANTE COLUNAS
+        # GARANTE COLUNAS MESMO SE NÃO EXISTIREM
         # =================================================
 
         colunas_necessarias = [
@@ -255,12 +253,16 @@ def carregar_transacoes(
                 df[coluna] = None
 
         # =================================================
-        # CONVERSÕES
+        # DATA
         # =================================================
 
         df["data"] = pd.to_datetime(
             df["data"]
         )
+
+        # =================================================
+        # MÊS/ANO
+        # =================================================
 
         df["mes_ano"] = df["data"].dt.strftime(
             "%m/%Y"
@@ -325,7 +327,7 @@ def excluir_transacao(
             id_transacao
         ).execute()
 
-        st.success(
+        st.toast(
             "Transação excluída!"
         )
 
@@ -357,7 +359,7 @@ def excluir_categoria(
             id_categoria
         ).execute()
 
-        st.success(
+        st.toast(
             "Categoria excluída!"
         )
 
@@ -412,7 +414,7 @@ def popup_nova_transacao():
     )
 
     # =====================================================
-    # RECEITA / DESPESA
+    # RECEITA E DESPESA
     # =====================================================
 
     if tipo != "Transferência":
@@ -432,10 +434,8 @@ def popup_nova_transacao():
         )
 
         opcoes = [
-
             c["nome"]
             for c in categorias
-
         ]
 
         categoria = st.selectbox(
@@ -455,6 +455,8 @@ def popup_nova_transacao():
             BANCOS
 
         )
+
+        banco_destino = None
 
     # =====================================================
     # TRANSFERÊNCIA
@@ -492,92 +494,32 @@ def popup_nova_transacao():
     )
 
     # =====================================================
-    # SALVAR
+    # BOTÃO SALVAR
     # =====================================================
 
     if st.button("Salvar"):
 
         try:
 
-            # =================================================
-            # RECEITA
-            # =================================================
+            valor_final = valor
 
-            if tipo == "Receita":
+            if tipo == "Despesa":
+                valor_final = -valor
 
-                supabase_auth.table(
-                    "transacoes"
-                ).insert({
+            supabase_auth.table(
+                "transacoes"
+            ).insert({
 
-                    "data": str(data),
-                    "categoria": categoria,
-                    "valor": valor,
-                    "tipo": tipo,
-                    "status": status,
-                    "banco": banco,
-                    "user_id": user_id
+                "data": str(data),
+                "categoria": categoria,
+                "valor": valor_final,
+                "tipo": tipo,
+                "status": status,
+                "banco": banco,
+                "banco_destino": banco_destino,
+                "user_id": user_id
 
-                }).execute()
-
-            # =================================================
-            # DESPESA
-            # =================================================
-
-            elif tipo == "Despesa":
-
-                supabase_auth.table(
-                    "transacoes"
-                ).insert({
-
-                    "data": str(data),
-                    "categoria": categoria,
-                    "valor": -valor,
-                    "tipo": tipo,
-                    "status": status,
-                    "banco": banco,
-                    "user_id": user_id
-
-                }).execute()
-
-            # =================================================
-            # TRANSFERÊNCIA
-            # =================================================
-
-            else:
-
-                # SAÍDA
-
-                supabase_auth.table(
-                    "transacoes"
-                ).insert({
-
-                    "data": str(data),
-                    "categoria": categoria,
-                    "valor": -valor,
-                    "tipo": tipo,
-                    "status": status,
-                    "banco": banco,
-                    "banco_destino": banco_destino,
-                    "user_id": user_id
-
-                }).execute()
-
-                # ENTRADA
-
-                supabase_auth.table(
-                    "transacoes"
-                ).insert({
-
-                    "data": str(data),
-                    "categoria": categoria,
-                    "valor": valor,
-                    "tipo": tipo,
-                    "status": status,
-                    "banco": banco_destino,
-                    "banco_destino": banco,
-                    "user_id": user_id
-
-                }).execute()
+            }).execute()
 
             st.success(
                 "Transação salva!"
@@ -629,17 +571,15 @@ def popup_categorias():
             c1, c2 = st.columns([4, 1])
 
             with c1:
-
-                st.write(
-                    item["nome"]
-                )
+                st.write(item["nome"])
 
             with c2:
 
                 if st.button(
 
-                    "❌",
-                    key=f"rec_{item['id']}"
+                    "🗑️",
+
+                    key=f"del_rec_{item['id']}"
 
                 ):
 
@@ -652,10 +592,10 @@ def popup_categorias():
                     )
 
         nova = st.text_input(
-            "Nova Receita"
+            "Nova Receita:"
         )
 
-        if st.button("➕ Receita"):
+        if st.button("➕ Adicionar Receita"):
 
             supabase_auth.table(
                 "categorias_receita"
@@ -689,17 +629,15 @@ def popup_categorias():
             c1, c2 = st.columns([4, 1])
 
             with c1:
-
-                st.write(
-                    item["nome"]
-                )
+                st.write(item["nome"])
 
             with c2:
 
                 if st.button(
 
-                    "❌",
-                    key=f"desp_{item['id']}"
+                    "🗑️",
+
+                    key=f"del_desp_{item['id']}"
 
                 ):
 
@@ -712,10 +650,10 @@ def popup_categorias():
                     )
 
         nova_d = st.text_input(
-            "Nova Despesa"
+            "Nova Despesa:"
         )
 
-        if st.button("➕ Despesa"):
+        if st.button("➕ Adicionar Despesa"):
 
             supabase_auth.table(
                 "categorias_despesa"
@@ -741,16 +679,8 @@ def dashboard():
 
     supabase_auth = get_authenticated_client()
 
-    if not supabase_auth:
-
-        st.error(
-            "Sessão inválida."
-        )
-
-        st.stop()
-
     # =====================================================
-    # MENU LATERAL
+    # SIDEBAR
     # =====================================================
 
     with st.sidebar:
@@ -761,13 +691,26 @@ def dashboard():
             f"👤 {usuario.email}"
         )
 
-        if st.button("💸 Nova Transação"):
-
-            popup_nova_transacao()
-
         if st.button("🗂️ Categorias"):
 
             popup_categorias()
+
+        st.divider()
+
+        nome_painel = st.text_input(
+
+            "Nome do Painel",
+
+            value=st.session_state.get(
+                "nome_painel",
+                "Meu Controle Financeiro"
+            )
+
+        )
+
+        st.session_state.nome_painel = nome_painel
+
+        st.divider()
 
         if st.button("🚪 Sair"):
 
@@ -793,26 +736,33 @@ def dashboard():
     )
 
     # =====================================================
-    # FILTRO MÊS
+    # FILTRO FIXO DE MESES
     # =====================================================
 
-    st.title(
-        "📊 Dashboard Financeiro"
-    )
+    meses = [
 
-    meses = sorted(
+        "01/2026",
+        "02/2026",
+        "03/2026",
+        "04/2026",
+        "05/2026",
+        "06/2026",
+        "07/2026",
+        "08/2026",
+        "09/2026",
+        "10/2026",
+        "11/2026",
+        "12/2026"
 
-        df["mes_ano"].unique(),
-
-        reverse=True
-
-    ) if not df.empty else []
+    ]
 
     mes_selecionado = st.selectbox(
 
         "📅 Filtrar por mês",
 
-        meses if meses else ["Sem dados"]
+        meses,
+
+        index=4
 
     )
 
@@ -823,11 +773,31 @@ def dashboard():
         ]
 
     # =====================================================
-    # BOTÃO NOVA TRANSAÇÃO
+    # TÍTULO
+    # =====================================================
+
+    titulo_dashboard = st.session_state.get(
+
+        "nome_painel",
+
+        "Meu Controle Financeiro"
+
+    )
+
+    st.title(
+        f"📊 {titulo_dashboard}"
+    )
+
+    # =====================================================
+    # NOVA TRANSAÇÃO
     # =====================================================
 
     if st.button(
-        "➕ Nova Transação"
+
+        "➕ Nova Transação",
+
+        use_container_width=True
+
     ):
 
         popup_nova_transacao()
@@ -888,55 +858,43 @@ def dashboard():
     st.metric(
 
         "💰 Saldo Total",
+
         f"R$ {saldo_total:,.2f}"
 
     )
 
     # =====================================================
-    # GRÁFICO DESPESAS
+    # GRÁFICOS
     # =====================================================
 
     st.divider()
 
-    st.subheader(
-        "📉 Despesas por Categoria"
-    )
+    if not df.empty:
 
-    if (
+        # =================================================
+        # DESPESAS
+        # =================================================
 
-        not df.empty
-        and "tipo" in df.columns
-        and "categoria" in df.columns
-
-    ):
-
-        df_despesas = df[
+        despesas = df[
             df["tipo"] == "Despesa"
         ]
 
-        if not df_despesas.empty:
+        if not despesas.empty:
 
-            grafico_despesas = (
+            grafico = despesas.groupby(
+                "categoria"
+            )["valor"].sum().reset_index()
 
-                df_despesas
-                .groupby("categoria")["valor"]
-                .sum()
-                .reset_index()
-
-            )
-
-            grafico_despesas["valor"] = (
-                grafico_despesas["valor"].abs()
-            )
+            grafico["valor"] = grafico["valor"].abs()
 
             fig = px.pie(
 
-                grafico_despesas,
+                grafico,
 
                 names="categoria",
                 values="valor",
 
-                title="Distribuição de Despesas"
+                title="📉 Despesas por Categoria"
 
             )
 
@@ -947,29 +905,9 @@ def dashboard():
 
             )
 
-        else:
-
-            st.info(
-                "Sem despesas cadastradas."
-            )
-
-    else:
-
-        st.info(
-            "Sem dados suficientes."
-        )
-
-    # =====================================================
-    # RECEITAS VS DESPESAS
-    # =====================================================
-
-    st.divider()
-
-    st.subheader(
-        "📊 Receitas vs Despesas"
-    )
-
-    if not df.empty and "tipo" in df.columns:
+        # =================================================
+        # RECEITAS VS DESPESAS
+        # =================================================
 
         receitas_total = df[
             df["tipo"] == "Receita"
@@ -983,7 +921,7 @@ def dashboard():
 
         )
 
-        grafico_resumo = pd.DataFrame({
+        grafico_barra = pd.DataFrame({
 
             "Tipo": [
 
@@ -1003,12 +941,12 @@ def dashboard():
 
         fig2 = px.bar(
 
-            grafico_resumo,
+            grafico_barra,
 
             x="Tipo",
             y="Valor",
 
-            title="Comparativo Financeiro"
+            title="📊 Receitas vs Despesas"
 
         )
 
@@ -1019,66 +957,8 @@ def dashboard():
 
         )
 
-    else:
-
-        st.info(
-            "Sem dados financeiros."
-        )
-
     # =====================================================
-    # EVOLUÇÃO FINANCEIRA
-    # =====================================================
-
-    st.divider()
-
-    st.subheader(
-        "📈 Evolução Financeira"
-    )
-
-    if (
-
-        not df.empty
-        and "data" in df.columns
-        and "valor" in df.columns
-
-    ):
-
-        evolucao = (
-
-            df.groupby("data")["valor"]
-            .sum()
-            .reset_index()
-
-        )
-
-        fig3 = px.line(
-
-            evolucao,
-
-            x="data",
-            y="valor",
-
-            markers=True,
-
-            title="Saldo Diário"
-
-        )
-
-        st.plotly_chart(
-
-            fig3,
-            use_container_width=True
-
-        )
-
-    else:
-
-        st.info(
-            "Sem dados para evolução."
-        )
-
-    # =====================================================
-    # TRANSAÇÕES
+    # ABAS TRANSAÇÕES
     # =====================================================
 
     st.divider()
@@ -1109,25 +989,36 @@ def dashboard():
 
             for _, row in despesas.iterrows():
 
-                with st.expander(
+                c1, c2, c3, c4, c5 = st.columns(
 
-                    f"{row['categoria']} | "
-                    f"R$ {abs(row['valor']):,.2f}"
+                    [2, 2, 2, 1, 1]
 
-                ):
+                )
 
+                with c1:
+                    st.write(row["categoria"])
+
+                with c2:
                     st.write(
-                        f"Banco: {row['banco']}"
+                        f"R$ {abs(row['valor']):,.2f}"
                     )
 
-                    st.write(
-                        f"Data: {row['data']}"
+                with c3:
+                    st.write(row["banco"])
+
+                with c4:
+                    st.button(
+                        "✏️",
+                        key=f"edit_desp_{row['id']}"
                     )
+
+                with c5:
 
                     if st.button(
 
-                        "🗑️ Excluir",
-                        key=f"desp_{row['id']}"
+                        "🗑️",
+
+                        key=f"del_desp_{row['id']}"
 
                     ):
 
@@ -1152,25 +1043,36 @@ def dashboard():
 
             for _, row in receitas.iterrows():
 
-                with st.expander(
+                c1, c2, c3, c4, c5 = st.columns(
 
-                    f"{row['categoria']} | "
-                    f"R$ {row['valor']:,.2f}"
+                    [2, 2, 2, 1, 1]
 
-                ):
+                )
 
+                with c1:
+                    st.write(row["categoria"])
+
+                with c2:
                     st.write(
-                        f"Banco: {row['banco']}"
+                        f"R$ {row['valor']:,.2f}"
                     )
 
-                    st.write(
-                        f"Data: {row['data']}"
+                with c3:
+                    st.write(row["banco"])
+
+                with c4:
+                    st.button(
+                        "✏️",
+                        key=f"edit_rec_{row['id']}"
                     )
+
+                with c5:
 
                     if st.button(
 
-                        "🗑️ Excluir",
-                        key=f"rec_{row['id']}"
+                        "🗑️",
+
+                        key=f"del_rec_{row['id']}"
 
                     ):
 
@@ -1195,25 +1097,40 @@ def dashboard():
 
             for _, row in transf.iterrows():
 
-                with st.expander(
+                c1, c2, c3, c4, c5 = st.columns(
 
-                    f"{row['banco']} → "
-                    f"{row['banco_destino']}"
+                    [2, 2, 2, 1, 1]
 
-                ):
+                )
 
+                with c1:
+                    st.write(row["banco"])
+
+                with c2:
                     st.write(
-                        f"Valor: R$ {abs(row['valor']):,.2f}"
+                        row["banco_destino"]
+                        if row["banco_destino"]
+                        else "-"
                     )
 
+                with c3:
                     st.write(
-                        f"Data: {row['data']}"
+                        f"R$ {abs(row['valor']):,.2f}"
                     )
+
+                with c4:
+                    st.button(
+                        "✏️",
+                        key=f"edit_transf_{row['id']}"
+                    )
+
+                with c5:
 
                     if st.button(
 
-                        "🗑️ Excluir",
-                        key=f"transf_{row['id']}"
+                        "🗑️",
+
+                        key=f"del_transf_{row['id']}"
 
                     ):
 
@@ -1238,14 +1155,16 @@ def dashboard():
 
         df_exibir = df.drop(
 
-            columns=[
-                "user_id",
-                "mes_ano"
-            ],
-
+            columns=["user_id", "mes_ano"],
             errors="ignore"
 
         )
+
+        # =================================================
+        # TROCA NONE POR "-"
+        # =================================================
+
+        df_exibir = df_exibir.fillna("-")
 
         st.dataframe(
 
