@@ -6,7 +6,7 @@ import streamlit as st
 import pandas as pd
 import plotly.express as px
 
-from datetime import date
+from datetime import datetime
 
 from supabase import create_client, Client
 
@@ -71,6 +71,9 @@ if "logado" not in st.session_state:
 
 if "nome_painel" not in st.session_state:
     st.session_state.nome_painel = "Meu Controle Financeiro"
+
+if "abrir_nova_categoria" not in st.session_state:
+    st.session_state.abrir_nova_categoria = False
 
 
 # =========================================================
@@ -455,6 +458,10 @@ def popup_nova_categoria():
 
     supabase_auth = get_authenticated_client()
 
+    st.subheader(
+        "Cadastrar nova categoria"
+    )
+
     tipo = st.selectbox(
 
         "Tipo da categoria",
@@ -486,20 +493,28 @@ def popup_nova_categoria():
 
         )
 
-        supabase_auth.table(
-            tabela
-        ).insert({
+        try:
 
-            "nome": nome,
-            "user_id": user_id
+            supabase_auth.table(
+                tabela
+            ).insert({
 
-        }).execute()
+                "nome": nome,
+                "user_id": user_id
 
-        st.success(
-            "Categoria criada!"
-        )
+            }).execute()
 
-        st.rerun()
+            st.success(
+                "Categoria criada!"
+            )
+
+            st.rerun()
+
+        except Exception as e:
+
+            st.error(
+                f"Erro ao salvar: {e}"
+            )
 
 
 # =========================================================
@@ -610,7 +625,9 @@ def popup_categorias():
 
     ):
 
-        popup_nova_categoria()
+        st.session_state.abrir_nova_categoria = True
+
+        st.rerun()
 
 
 # =========================================================
@@ -809,7 +826,7 @@ def dashboard():
             st.rerun()
 
     # =====================================================
-    # CARREGA DADOS
+    # DADOS
     # =====================================================
 
     df_total = carregar_transacoes(
@@ -819,22 +836,21 @@ def dashboard():
 
     )
 
+    ano_atual = datetime.now().year
+
     meses = [
 
-        "01/2026",
-        "02/2026",
-        "03/2026",
-        "04/2026",
-        "05/2026",
-        "06/2026",
-        "07/2026",
-        "08/2026",
-        "09/2026",
-        "10/2026",
-        "11/2026",
-        "12/2026"
+        f"{str(m).zfill(2)}/{ano_atual}"
+
+        for m in range(1, 13)
 
     ]
+
+    mes_atual = datetime.now().strftime("%m/%Y")
+
+    index_mes = meses.index(
+        mes_atual
+    ) if mes_atual in meses else 0
 
     mes_selecionado = st.selectbox(
 
@@ -842,7 +858,7 @@ def dashboard():
 
         meses,
 
-        index=4
+        index=index_mes
 
     )
 
@@ -873,7 +889,7 @@ def dashboard():
     )
 
     # =====================================================
-    # NOVA TRANSAÇÃO
+    # BOTÃO NOVA TRANSAÇÃO
     # =====================================================
 
     if st.button(
@@ -920,10 +936,6 @@ def dashboard():
         ]["valor"].sum()
 
     saldo_total = saldo_anterior + saldo_mes
-
-    # =====================================================
-    # PENDÊNCIAS
-    # =====================================================
 
     pendente_itau = 0
 
@@ -1000,7 +1012,7 @@ def dashboard():
         )
 
     # =====================================================
-    # GRÁFICOS
+    # GRÁFICO
     # =====================================================
 
     st.divider()
@@ -1243,6 +1255,20 @@ def dashboard():
         st.info(
             "Nenhuma transação encontrada."
         )
+
+
+# =========================================================
+# ABRIR MODAL NOVA CATEGORIA
+# =========================================================
+
+if st.session_state.get(
+    "abrir_nova_categoria",
+    False
+):
+
+    st.session_state.abrir_nova_categoria = False
+
+    popup_nova_categoria()
 
 
 # =========================================================
